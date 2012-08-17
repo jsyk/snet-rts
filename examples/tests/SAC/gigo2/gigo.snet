@@ -1,0 +1,19 @@
+  <metadata>
+   <boxdefault>
+     <interface value="SAC4SNet" />
+     <SACmodule>gigo</SACmodule>
+   </boxdefault>
+  </metadata>
+
+net gigo {
+
+    <metadata>
+      <box name="workload" >
+        <SACboxfun>workload</SACboxfun>
+        <SACdefaultmap>0, 1, 2, 3</SACdefaultmap>
+      </box>
+    </metadata>
+
+  box workload( (V) -> (V));
+
+} connect (workload);

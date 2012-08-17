@@ -1,0 +1,72 @@
+module gigo;
+
+use Structures: all;
+use StdIO: all;
+/*use Array: all;*/
+
+export all;
+
+
+// int noop(int i, int x)
+// {
+//   return i + x;
+// }
+// 
+// int[.] id(int[.] x)
+// {
+//   return x;
+// }
+
+/* a unit of work */
+// #define JOULE       1048576
+#define JOULE       10485760
+
+double[JOULE] seq_one_joule(double[JOULE] a)
+{
+  s = 0d;
+  for (i = 0; i < JOULE; i++) {
+    s = s + a[[i]];
+  }
+  a[0] = s;
+//   b = genarray(shape(a), 0d);
+//   for (i = 0; i < shape(a)[0]; i++) {
+//     b[i] = a[i] + s;
+//   }
+  return a;
+}
+
+double[JOULE] par_one_joule(double[JOULE] a)
+{
+  s = with {
+    ( [0] <= iv < [JOULE] ) : a[iv];
+  } : fold(+, 0d);
+  //sa = genarray(shape(a), s);
+//   a = a + s;
+  a[0] = s;
+  return a;
+}
+
+void workload( SNet::SNet &hnd, double[.] V)
+{
+  // V[0] = Ti = sequential load
+  // V[1] = alpha
+  // V[2] = garbage
+  alpha = V[1];
+  seq_iters = toi(V[0] * (1.0d - alpha));
+  par_iters = toi(V[0] * alpha);
+  
+  a = genarray([JOULE], V[2]);
+  for (i = 0; i < seq_iters; ++i) {
+    a = seq_one_joule(a);
+  }
+  
+  for (i = 0; i < par_iters; ++i) {
+    a = par_one_joule(a);
+  }
+  
+  W = V;
+  W[2] = a[JOULE-1];
+  
+  SNet::out( hnd, 1, sacprelude::wrap( W));
+}
+
