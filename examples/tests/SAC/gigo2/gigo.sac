@@ -46,7 +46,7 @@ double[JOULE] par_one_joule(double[JOULE] a)
   return a;
 }
 
-void workload( SNet::SNet &hnd, double[.] V)
+inline void workload( SNet::SNet &hnd, double[.] V)
 {
   // V[0] = Ti = sequential load
   // V[1] = alpha
@@ -70,3 +70,17 @@ void workload( SNet::SNet &hnd, double[.] V)
   SNet::out( hnd, 1, sacprelude::wrap( W));
 }
 
+inline void workload_V1( SNet::SNet &hnd, double[.] V1)
+{
+  workload(hnd, V1);
+}
+
+inline void workload_V2( SNet::SNet &hnd, double[.] V2)
+{
+  workload(hnd, V2);
+}
+
+inline void workload_V3( SNet::SNet &hnd, double[.] V3)
+{
+  workload(hnd, V3);
+}

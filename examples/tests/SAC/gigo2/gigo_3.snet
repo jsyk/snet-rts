@@ -1,0 +1,33 @@
+  <metadata>
+   <boxdefault>
+     <interface value="SAC4SNet" />
+     <SACmodule>gigo</SACmodule>
+   </boxdefault>
+  </metadata>
+
+net gigo_3 {
+
+    <metadata>
+      <box name="workload_V1" >
+        <SACboxfun>workload_V1</SACboxfun>
+        <SACdefaultmap>$AMAP</SACdefaultmap>
+      </box>
+    </metadata>
+    <metadata>
+      <box name="workload_V2" >
+        <SACboxfun>workload_V2</SACboxfun>
+        <SACdefaultmap>$BMAP</SACdefaultmap>
+      </box>
+    </metadata>
+    <metadata>
+      <box name="workload_V3" >
+        <SACboxfun>workload_V3</SACboxfun>
+        <SACdefaultmap>$CMAP</SACdefaultmap>
+      </box>
+    </metadata>
+
+  box workload_V1 ( (V1) -> (V1));
+  box workload_V2 ( (V2) -> (V2));
+  box workload_V3 ( (V3) -> (V3));
+
+} connect (workload_V1 .. workload_V2 .. workload_V3);
