@@ -1,0 +1,16 @@
+<record xmlns="snet-home.org" type="data" mode="textual">
+<field label="V1" interface="SAC4SNet">
+:::SACFIBRE: double 3  :::
+inputs/input-b-0.0.inp
+</field>
+<field label="V2" interface="SAC4SNet">
+  :::SACFIBRE: double 3  :::
+  inputs/input-b-0.5.inp
+</field>
+<field label="V3" interface="SAC4SNet">
+  :::SACFIBRE: double 3  :::
+  inputs/input-b-1.0.inp
+</field>
+</record>
+
+<record xmlns="snet-home.org" type="terminate"/>
