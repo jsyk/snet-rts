@@ -5,12 +5,12 @@
    </boxdefault>
   </metadata>
 
-net gigo {
+net gigo_1 {
 
     <metadata>
       <box name="workload" >
         <SACboxfun>workload</SACboxfun>
-        <SACdefaultmap>0, 1, 2, 3</SACdefaultmap>
+        <SACdefaultmap>$AMAP</SACdefaultmap>
       </box>
     </metadata>
 
