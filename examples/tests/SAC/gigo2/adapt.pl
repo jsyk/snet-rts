@@ -58,6 +58,59 @@ sub read_log
     return \%tasklog;
 }
 
+sub read_batch
+{
+    my $batchname = shift;
+    #
+    (open my $batch_fh, "<$batchname") or die "Could not open the batch file!";
+    my @batch = ();
+    while (<$batch_fh>) {
+        chomp;
+        # remove comments
+        s/#.*$//g;
+        #
+        if (/^\s*(\d+)\s+(\S+)\s+(\S+)\s+\s+(\S+)\s+(\S+)$/) {
+            my $ncyc = $1;
+            my $xml = $2;
+            my $fx1 = $3;
+            my $fx2 = $4;
+            my $fx3 = $5;
+            (open my $tst, "<$xml") or die "Could not open the xml file '$xml'!";
+            close $tst;
+            if ($fx1 eq 'NA') {
+                $fx1 = undef;
+            }
+            if ($fx2 eq 'NA') {
+                $fx2 = undef;
+            }
+            if ($fx3 eq 'NA') {
+                $fx3 = undef;
+            }
+            push @batch, { 'ncyc' => $ncyc, 'xmlf' => $xml, 'fx' => [ $fx1, $fx2, $fx3 ] };
+        }
+    }
+    close $batch_fh;
+    return \@batch;
+}
+
+sub get_batchline
+{
+    # find cycnum in batch
+    my $batch = shift;
+    my $cycnum = shift;
+    #
+    my $c = 1;
+    for (my $i = 0; $i < scalar(@$batch); ++$i) {
+        my $bl = $batch->[$i];
+        if ($cycnum >= $c) {
+            return $bl;
+        }
+        $c = $c + $bl->[0];
+    }
+    return undef;
+}
+
+
 sub get_measurements
 {
     my $boxes = shift;
@@ -80,40 +133,65 @@ sub get_measurements
         if (defined($boxes->{$taskname})) {
             my $data = $boxes->{$taskname}->{'data'};
             my $p = $boxes->{$taskname}->{'p'};
-            push @{$data}, [ $p, $exetime ];
+            my $tp = $boxes->{$taskname}->{'tp'};
+            my $delta = undef;
+            if (defined $tp) {
+                $delta = ($exetime / $tp) - 1;
+            }
+            my $fx = $boxes->{$taskname}->{'fx'};
+            push @{$data}, [ $p, $exetime,  $delta, $fx ];
         }
     }
 }
 
 sub def_box
 {
-    return { 'data' => [], 'p' => 1, 'Ts' => undef, 'alpha' => undef, 'tp' => undef };
+    return { 'data' => [], 'p' => 1, 'Ts' => undef, 'alpha' => undef, 'tp' => undef, 'fx' => undef };
+}
+
+sub fstr
+{
+    # format value to string and handle NAs
+    my $format = shift;
+    my $val = shift;
+    #
+    if (defined $val) {
+        return sprintf($format, $val);
+    } else {
+        return 'NA';
+    }
 }
 
 sub print_boxes
 {
     my $boxes = shift;
+    #
     while (my ($boxname, $boxinfo) = each(%$boxes)) {
         my $p = $boxinfo->{'p'};
         my $data = $boxinfo->{'data'};
         my $Ts = $boxinfo->{'Ts'};
         my $alpha = $boxinfo->{'alpha'};
         my $tp = $boxinfo->{'tp'};
-        if (not defined($Ts)) { $Ts = 'NA'; }
-        if (not defined($alpha)) { $alpha = 'NA'; }
-        if (not defined($tp)) { $tp = 'NA'; }
+        my $fx = $boxinfo->{'fx'};
         
         my $strdata = '(';
         for (my $i = 0; $i < scalar(@$data); ++$i) {
-            $strdata = $strdata . '(' . $data->[$i]->[0] . '|' . $data->[$i]->[1] . ') ';
+            # $strdata = $strdata . '(' . $data->[$i]->[0] . '|' . $data->[$i]->[1] . ') ';
+            $strdata = $strdata . sprintf('(%d|%s|%s|%s) ',
+                $data->[$i]->[0], fstr('%.3f', $data->[$i]->[1]), fstr('%.3f', $data->[$i]->[2]),
+                fstr('%.3f', $data->[$i]->[3]));
         }
-        print "box:$boxname => p:$p, Ts:$Ts, alpha:$alpha, tp:$tp, data:$strdata)\n";
+        printf("box:%s => p:%d, Ts:%s, alpha:%s, tp:%s, fx:%s, data:%s)\n",
+                $boxname, $p, fstr('%.3f', $Ts), fstr('%.3f', $alpha), fstr('%.3f', $tp), 
+                fstr('%.3f', $fx), 
+                $strdata);
     }
 }
 
 sub run_experiment
 {
     my $boxes = shift;
+    my $batchln = shift;        # a config line from the batch
     #
     # the first free core; we second-guess snet-rts that it allocates
     # the first 3 cores to the boxes
@@ -140,8 +218,8 @@ sub run_experiment
         ++$freecore;
     }
     
-    my $wkld = 'abc2';
-    my $prgline = "AMAP=$amap BMAP=$bmap CMAP=$cmap  ./gigo_3-lpel -m A <wkload-" . $wkld . '.xml';
+    my $wkld = $batchln->{'xmlf'};
+    my $prgline = "AMAP=$amap BMAP=$bmap CMAP=$cmap  ./gigo_3-lpel -m A <" . $wkld;
     
     #print "==============================================================\n";
     print "---- Running the snet: $prgline\n";
@@ -153,12 +231,52 @@ sub run_experiment
     print "    Execution time: $duration s\n";
 }
 
+sub extrema
+{
+    my $data = shift;       # data array
+    my $col = shift;        # column where to find extrema
+    #
+    my $minv = undef;
+    my $maxv = undef;
+    for (my $i = 0; $i < scalar(@$data); ++$i) {
+        my @dp = @{ $data->[$i] };
+        if (not defined($minv) or ($minv > $dp[$col])) {
+            $minv = $dp[$col];
+        }
+        if (not defined($maxv) or ($maxv < $dp[$col])) {
+            $maxv = $dp[$col];
+        }
+    }
+    return ($minv, $maxv);
+}
+
+sub separate
+{
+    my $data = shift;
+    my $center = shift;
+    my $col = shift;
+    #
+    my @left = ();
+    my @right = ();
+    for (my $i = 0; $i < scalar(@$data); ++$i) {
+        my @dp = @{ $data->[$i] };
+        if ($dp[$col] < $center) {
+            push @left, \@dp;
+        } else {
+            push @right, \@dp;
+        }
+    }
+    return (\@left, \@right);
+}
+
+
 sub aggregate
 {
     my $xdata = shift;
     #
     my @data = @{ $xdata };
-    my @res = @{ $data[0] };
+    #  [0] = p, [1] = exetime
+    my @res = ( $data[0]->[0], $data[0]->[1] );
     
     #print join(',', @res) . "\n";
     
@@ -186,42 +304,46 @@ sub update_model
         # insufficient data
         return;
     }
-    # determine the min and max number of cores we have measurements for.
-    my $min_p = undef;
-    my $max_p = undef;
-    for (my $i = 0; $i < scalar(@data); ++$i) {
-        my @dp = @{ $data[$i] };
-        if (not defined($min_p) or ($min_p > $dp[0])) {
-            $min_p = $dp[0];
-        }
-        if (not defined($max_p) or ($max_p < $dp[0])) {
-            $max_p = $dp[0];
-        }
+
+    # determine the min and max fx predictor
+    my ($min_fx, $max_fx) = extrema(\@data, 3);
+
+    if (defined $boxinfo->{'alpha'} and ($min_fx != $max_fx)) {
+        my $center_fx = ($max_fx + $min_fx) / 2;
+        print "  min_fx:$min_fx, max_fx:$max_fx, center_fx:$center_fx\n";
+
+        # separate the data points into the Left and Right groups
+        my ($left_fx, $right_fx) = separate(\@data, $center_fx, 3);
     }
+
+
+    # determine the min and max number of cores we have measurements for.
+    my ($min_p, $max_p) = extrema(\@data, 0);
     
     if ($min_p == $max_p) {
         # insufficient data
         return;
     }
     
-    my $center = ($max_p + $min_p) / 2;
-    print "  min_p:$min_p, max_p:$max_p, center:$center\n";
+    my $center_p = ($max_p + $min_p) / 2;
+    print "  min_p:$min_p, max_p:$max_p, center_p:$center_p\n";
     
     # separate the data points into the Left and Right groups
-    my @left = ();
-    my @right = ();
-    for (my $i = 0; $i < scalar(@data); ++$i) {
-        my @dp = @{ $data[$i] };
-        if ($dp[0] < $center) {
-            push @left, \@dp;
-        } else {
-            push @right, \@dp;
-        }
-    }
+    my ($left, $right) = separate(\@data, $center_p, 0);
+    # my @left = ();
+    # my @right = ();
+    # for (my $i = 0; $i < scalar(@data); ++$i) {
+    #     my @dp = @{ $data[$i] };
+    #     if ($dp[0] < $center_p) {
+    #         push @left, \@dp;
+    #     } else {
+    #         push @right, \@dp;
+    #     }
+    # }
     
     # aggregate the groups into two data points
-    my @left_dp = aggregate(\@left);
-    my @right_dp = aggregate(\@right);
+    my @left_dp = aggregate($left);
+    my @right_dp = aggregate($right);
     
     print "  left_dp:(" . join(',', @left_dp) . "), right_dp:(" . join(',', @right_dp) . ")\n";
     
@@ -316,6 +438,10 @@ sub mapper
 
 ##########################################################################################
 
+my $batchfname = shift;
+print "Batch file: $batchfname\n";
+my $batch = read_batch($batchfname);
+
 my $boxes = {
     'workload_V1' => def_box(),
     'workload_V2' => def_box(),
@@ -324,19 +450,29 @@ my $boxes = {
 
 my $cycle = 1;
 
+# $boxes->{'workload_V1'}->{'p'} = 1;
+# $boxes->{'workload_V2'}->{'p'} = 4;
+# $boxes->{'workload_V3'}->{'p'} = 3;
+
 $boxes->{'workload_V1'}->{'p'} = 1;
-$boxes->{'workload_V2'}->{'p'} = 4;
-$boxes->{'workload_V3'}->{'p'} = 3;
-
-run_experiment($boxes);
-get_measurements($boxes);
-print_boxes($boxes);
-
-$boxes->{'workload_V1'}->{'p'} = 6;
 $boxes->{'workload_V2'}->{'p'} = 1;
 $boxes->{'workload_V3'}->{'p'} = 1;
 
-run_experiment($boxes);
+run_experiment($boxes, get_batchline($batch, $cycle));
+get_measurements($boxes);
+print_boxes($boxes);
+
+$cycle += 1;
+
+# $boxes->{'workload_V1'}->{'p'} = 6;
+# $boxes->{'workload_V2'}->{'p'} = 1;
+# $boxes->{'workload_V3'}->{'p'} = 1;
+
+$boxes->{'workload_V1'}->{'p'} = 2;
+$boxes->{'workload_V2'}->{'p'} = 2;
+$boxes->{'workload_V3'}->{'p'} = 2;
+
+run_experiment($boxes, get_batchline($batch, $cycle));
 get_measurements($boxes);
 print_boxes($boxes);
 
@@ -347,17 +483,28 @@ print_boxes($boxes);
 # $boxes->{'workload_V3'}->{'p'} = 1;
 # $boxes->{'workload_V3'}->{'data'} = [ [3, 10.578793], [1, 19.704458] ];
 
+$cycle += 1;
+
 while (1) {
     print "===== Cycle $cycle\n";
+    my $batchln = get_batchline($batch, $cycle);
+    if (not defined($batchln)) {
+        return;
+    }
+
     print_boxes($boxes);
     while (my ($boxname, $boxinfo) = each(%$boxes)) {
         print "Model of $boxname:\n";
         update_model($boxinfo);
     }
     
+    $boxes->{'workload_V1'}->{'fx'} = $batchln->{'fx'}->[0];
+    $boxes->{'workload_V2'}->{'fx'} = $batchln->{'fx'}->[1];
+    $boxes->{'workload_V3'}->{'fx'} = $batchln->{'fx'}->[2];
+
     mapper($boxes, 8);
     
-    run_experiment($boxes);
+    run_experiment($boxes, $batchln);
     get_measurements($boxes);
     
     $cycle += 1;
