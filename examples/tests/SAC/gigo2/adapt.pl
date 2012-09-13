@@ -102,10 +102,10 @@ sub get_batchline
     my $c = 1;
     for (my $i = 0; $i < scalar(@$batch); ++$i) {
         my $bl = $batch->[$i];
-        if ($cycnum >= $c) {
+        $c = $c + $bl->{'ncyc'};
+        if ($cycnum < $c) {
             return $bl;
         }
-        $c = $c + $bl->[0];
     }
     return undef;
 }
@@ -146,7 +146,8 @@ sub get_measurements
 
 sub def_box
 {
-    return { 'data' => [], 'p' => 1, 'Ts' => undef, 'alpha' => undef, 'tp' => undef, 'fx' => undef };
+    return { 'data' => [], 'p' => 1, 'Ts' => undef, 'alpha' => undef, 'tp' => undef, 'fx' => undef, 
+            'beta' => undef, 'gamma' => undef };
 }
 
 sub fstr
@@ -171,6 +172,8 @@ sub print_boxes
         my $data = $boxinfo->{'data'};
         my $Ts = $boxinfo->{'Ts'};
         my $alpha = $boxinfo->{'alpha'};
+        my $beta = $boxinfo->{'beta'};
+        my $gamma = $boxinfo->{'gamma'};
         my $tp = $boxinfo->{'tp'};
         my $fx = $boxinfo->{'fx'};
         
@@ -181,11 +184,24 @@ sub print_boxes
                 $data->[$i]->[0], fstr('%.3f', $data->[$i]->[1]), fstr('%.3f', $data->[$i]->[2]),
                 fstr('%.3f', $data->[$i]->[3]));
         }
-        printf("box:%s => p:%d, Ts:%s, alpha:%s, tp:%s, fx:%s, data:%s)\n",
-                $boxname, $p, fstr('%.3f', $Ts), fstr('%.3f', $alpha), fstr('%.3f', $tp), 
+        printf("box:%s => p:%d, Ts:%s, alpha:%s, beta:%s, gamma:%s, tp:%s, fx:%s, data:%s)\n",
+                $boxname, $p, fstr('%.3f', $Ts), 
+                fstr('%.3f', $alpha), fstr('%.3f', $beta), fstr('%.3f', $gamma), 
+                fstr('%.3f', $tp), 
                 fstr('%.3f', $fx), 
                 $strdata);
     }
+}
+
+sub write_x_recfile
+{
+    my $fname = shift;
+    my $a_Ts = shift;
+    my $a_alpha = shift;
+    #
+    (open my $rcfh, ">$fname") or die "Could not open '$fname'!";
+    print $rcfh  "[ 0,2 :\n    $a_Ts\n    $a_alpha\n    1.800000e+01\n]\n";
+    close $rcfh;
 }
 
 sub run_experiment
@@ -218,6 +234,11 @@ sub run_experiment
         ++$freecore;
     }
     
+    # write input records files
+    write_x_recfile("inputs/input-x-V1.inp", $batchln->{'fx'}->[0], 0.0);
+    write_x_recfile("inputs/input-x-V2.inp", $batchln->{'fx'}->[1], 0.5);
+    write_x_recfile("inputs/input-x-V3.inp", $batchln->{'fx'}->[2], 1.0);
+
     my $wkld = $batchln->{'xmlf'};
     my $prgline = "AMAP=$amap BMAP=$bmap CMAP=$cmap  ./gigo_3-lpel -m A <" . $wkld;
     
@@ -240,11 +261,13 @@ sub extrema
     my $maxv = undef;
     for (my $i = 0; $i < scalar(@$data); ++$i) {
         my @dp = @{ $data->[$i] };
-        if (not defined($minv) or ($minv > $dp[$col])) {
-            $minv = $dp[$col];
-        }
-        if (not defined($maxv) or ($maxv < $dp[$col])) {
-            $maxv = $dp[$col];
+        if (defined $dp[$col]) {
+            if (not defined($minv) or ($minv > $dp[$col])) {
+                $minv = $dp[$col];
+            }
+            if (not defined($maxv) or ($maxv < $dp[$col])) {
+                $maxv = $dp[$col];
+            }
         }
     }
     return ($minv, $maxv);
@@ -260,10 +283,12 @@ sub separate
     my @right = ();
     for (my $i = 0; $i < scalar(@$data); ++$i) {
         my @dp = @{ $data->[$i] };
-        if ($dp[$col] < $center) {
-            push @left, \@dp;
-        } else {
-            push @right, \@dp;
+        if (defined $dp[$col]) {
+            if ($dp[$col] < $center) {
+                push @left, \@dp;
+            } else {
+                push @right, \@dp;
+            }
         }
     }
     return (\@left, \@right);
@@ -273,18 +298,20 @@ sub separate
 sub aggregate
 {
     my $xdata = shift;
+    my $col = shift;
     #
     my @data = @{ $xdata };
-    #  [0] = p, [1] = exetime
-    my @res = ( $data[0]->[0], $data[0]->[1] );
+    #  [$col] = p or fx, [1] = exetime
+    my @res = ( $data[0]->[$col], $data[0]->[1] );
     
     #print join(',', @res) . "\n";
     
     for (my $i = 1; $i < scalar(@data); ++$i) {
         my @dp = @{ $data[$i] };
-        for (my $k = 0; $k < 2; ++$k) {
-            $res[$k] += $dp[$k];
-        }
+        # for (my $k = 0; $k < 2; ++$k) {
+        $res[0] += $dp[$col];
+        $res[1] += $dp[1];
+        # }
     }
     for (my $k = 0; $k < 2; ++$k) {
         $res[$k] /= scalar(@data);
@@ -292,6 +319,33 @@ sub aggregate
     
     #print join(',', @res) . "\n\n";
     return @res;
+}
+
+sub factor_S_out
+{
+    my $data = shift;
+    my $alpha = shift;
+    #
+    for (my $i = 0; $i < scalar(@$data); ++$i) {
+        my $p = $data->[$i]->[0];
+        my $S = $alpha / $p + 1 - $alpha;
+        $data->[$i]->[1] /= $S;
+    }
+}
+
+sub factor_Tseq_out
+{
+    my $data = shift;
+    my $beta = shift;
+    my $gamma = shift;
+    #
+    for (my $i = 0; $i < scalar(@$data); ++$i) {
+        my $fx = $data->[$i]->[3];
+        if (defined $fx) {
+            my $Tseq = $beta * $fx + $gamma;
+            $data->[$i]->[1] /= $Tseq;
+        }
+    }
 }
 
 sub update_model
@@ -308,12 +362,32 @@ sub update_model
     # determine the min and max fx predictor
     my ($min_fx, $max_fx) = extrema(\@data, 3);
 
-    if (defined $boxinfo->{'alpha'} and ($min_fx != $max_fx)) {
+    if (defined $boxinfo->{'alpha'} and defined($min_fx) and defined($max_fx) and ($min_fx != $max_fx)) {
         my $center_fx = ($max_fx + $min_fx) / 2;
         print "  min_fx:$min_fx, max_fx:$max_fx, center_fx:$center_fx\n";
 
         # separate the data points into the Left and Right groups
         my ($left_fx, $right_fx) = separate(\@data, $center_fx, 3);
+
+        factor_S_out($left_fx, $boxinfo->{'alpha'});
+        factor_S_out($right_fx, $boxinfo->{'alpha'});
+
+        # aggregate the groups into two data points
+        my @left_fx_dp = aggregate($left_fx, 3);
+        my @right_fx_dp = aggregate($right_fx, 3);
+        
+        print "  left_fx_dp:(" . join(',', @left_fx_dp) . "), right_fx_dp:(" . join(',', @right_fx_dp) . ")\n";
+        
+        my ($fx1, $fx2) = ($left_fx_dp[0], $right_fx_dp[0]);
+        my ($t1, $t2) = ($left_fx_dp[1], $right_fx_dp[1]);
+
+        my $beta = ($t2 - $t1) / ($fx2 - $fx1);
+        my $gamma = $t1 - $beta * $fx1;
+
+        print "  beta:$beta, gamma:$gamma\n";
+
+        $boxinfo->{'beta'} = $beta;
+        $boxinfo->{'gamma'} = $gamma;
     }
 
 
@@ -330,20 +404,15 @@ sub update_model
     
     # separate the data points into the Left and Right groups
     my ($left, $right) = separate(\@data, $center_p, 0);
-    # my @left = ();
-    # my @right = ();
-    # for (my $i = 0; $i < scalar(@data); ++$i) {
-    #     my @dp = @{ $data[$i] };
-    #     if ($dp[0] < $center_p) {
-    #         push @left, \@dp;
-    #     } else {
-    #         push @right, \@dp;
-    #     }
-    # }
     
+    if (defined $boxinfo->{'beta'} and defined $boxinfo->{'gamma'}) {
+        factor_Tseq_out($left, $boxinfo->{'beta'}, $boxinfo->{'gamma'});
+        factor_Tseq_out($right, $boxinfo->{'beta'}, $boxinfo->{'gamma'});
+    }
+
     # aggregate the groups into two data points
-    my @left_dp = aggregate($left);
-    my @right_dp = aggregate($right);
+    my @left_dp = aggregate($left, 0);
+    my @right_dp = aggregate($right, 0);
     
     print "  left_dp:(" . join(',', @left_dp) . "), right_dp:(" . join(',', @right_dp) . ")\n";
     
@@ -393,6 +462,14 @@ sub predict_latency
     my $p = shift;
     #
     my $Ts = $boxinfo->{'Ts'};
+    my $beta = $boxinfo->{'beta'};
+    my $gamma = $boxinfo->{'gamma'};
+    my $fx = $boxinfo->{'fx'};
+
+    if (defined $beta and defined $gamma and defined $fx) {
+        $Ts = $beta * $fx + $gamma;
+    }
+
     my $alpha = $boxinfo->{'alpha'};
     return ($Ts * ($alpha / $p + 1 - $alpha));
 }
@@ -453,12 +530,17 @@ my $cycle = 1;
 # $boxes->{'workload_V1'}->{'p'} = 1;
 # $boxes->{'workload_V2'}->{'p'} = 4;
 # $boxes->{'workload_V3'}->{'p'} = 3;
+my $batchln = get_batchline($batch, $cycle);
 
 $boxes->{'workload_V1'}->{'p'} = 1;
 $boxes->{'workload_V2'}->{'p'} = 1;
 $boxes->{'workload_V3'}->{'p'} = 1;
+# get the 'prediction' of the next run
+$boxes->{'workload_V1'}->{'fx'} = $batchln->{'fx'}->[0];
+$boxes->{'workload_V2'}->{'fx'} = $batchln->{'fx'}->[1];
+$boxes->{'workload_V3'}->{'fx'} = $batchln->{'fx'}->[2];
 
-run_experiment($boxes, get_batchline($batch, $cycle));
+run_experiment($boxes, $batchln);
 get_measurements($boxes);
 print_boxes($boxes);
 
@@ -468,11 +550,16 @@ $cycle += 1;
 # $boxes->{'workload_V2'}->{'p'} = 1;
 # $boxes->{'workload_V3'}->{'p'} = 1;
 
+$batchln = get_batchline($batch, $cycle);
 $boxes->{'workload_V1'}->{'p'} = 2;
 $boxes->{'workload_V2'}->{'p'} = 2;
 $boxes->{'workload_V3'}->{'p'} = 2;
+# get the 'prediction' of the next run
+$boxes->{'workload_V1'}->{'fx'} = $batchln->{'fx'}->[0];
+$boxes->{'workload_V2'}->{'fx'} = $batchln->{'fx'}->[1];
+$boxes->{'workload_V3'}->{'fx'} = $batchln->{'fx'}->[2];
 
-run_experiment($boxes, get_batchline($batch, $cycle));
+run_experiment($boxes, $batchln);
 get_measurements($boxes);
 print_boxes($boxes);
 
@@ -487,9 +574,9 @@ $cycle += 1;
 
 while (1) {
     print "===== Cycle $cycle\n";
-    my $batchln = get_batchline($batch, $cycle);
+    $batchln = get_batchline($batch, $cycle);
     if (not defined($batchln)) {
-        return;
+        exit 0;
     }
 
     print_boxes($boxes);
@@ -498,6 +585,7 @@ while (1) {
         update_model($boxinfo);
     }
     
+    # get the 'prediction' of the next run
     $boxes->{'workload_V1'}->{'fx'} = $batchln->{'fx'}->[0];
     $boxes->{'workload_V2'}->{'fx'} = $batchln->{'fx'}->[1];
     $boxes->{'workload_V3'}->{'fx'} = $batchln->{'fx'}->[2];
