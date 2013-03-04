@@ -26,10 +26,10 @@ Lightweight Parallel Execution Layer (LPEL)
     git clone git://github.com/snetdev/lpel.git
 
 SAC Compiler (sac2c)
-    svn co svn+ssh://svn@revisionix.stca.herts.ac.uk/repositories/sac/sac2c/trunk sac2c
+    git clone git@amaterasu.macs.hw.ac.uk:sac2c
 
 SAC StdLib (stdlib)
-    svn co svn+ssh://svn@revisionix.stca.herts.ac.uk/repositories/sac/stdlib/trunk stdlib
+    git clone git@amaterasu.macs.hw.ac.uk:stdlib
 
 S-NET Run-time System (snet-rts)
     git clone git://github.com/snetdev/snet-rts.git
